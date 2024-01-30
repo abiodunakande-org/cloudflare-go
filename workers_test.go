@@ -534,7 +534,7 @@ func TestUpdateWorkersScriptContent(t *testing.T) {
 		fmt.Fprint(w, workersScriptResponse(t, withWorkerModifiedOn(formattedTime)))
 	})
 
-	res, err := client.UpdateWorkersScriptContent(context.Background(), AccountIdentifier(testAccountID), UpdateWorkersScriptContentParams{ScriptName: "foo", Script: workerScript})
+	res, err := client.UpdateWorkersScriptContent(context.Background(), AccountIdentifier(testAccountID), UpdateWorkersScriptContentParams{ScriptName: "foo", Script: strings.NewReader(workerScript)})
 	want := WorkerScriptResponse{
 		successResponse,
 		false,
@@ -637,8 +637,9 @@ func TestUploadWorker_Basic(t *testing.T) {
 		assert.Equal(t, "application/javascript", contentTypeHeader, "Expected content-type request header to be 'application/javascript', got %s", contentTypeHeader)
 		w.Header().Set("content-type", "application/json")
 		fmt.Fprint(w, workersScriptResponse(t, withWorkerModifiedOn(formattedTime)))
+		fmt.Println("Printing...")
 	})
-	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: workerScript})
+	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: strings.NewReader(workerScript)})
 	want := WorkerScriptResponse{
 		successResponse,
 		false,
@@ -681,7 +682,7 @@ func TestUploadWorker_Module(t *testing.T) {
 		w.Header().Set("content-type", "application/json")
 		fmt.Fprint(w, workersScriptResponse(t, withWorkerScript(expectedWorkersModuleWorkerScript), withWorkerCreatedOn(formattedCreatedTime)))
 	})
-	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: workerModuleScript, Module: true})
+	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: strings.NewReader(workerModuleScript), Module: true})
 	want := WorkerScriptResponse{
 		Response: successResponse,
 		Module:   false,
@@ -731,7 +732,7 @@ func TestUploadWorker_WithDurableObjectBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerDurableObjectBinding{
 				ClassName:  "TheClass",
@@ -792,7 +793,7 @@ func TestUploadWorker_WithInheritBinding(t *testing.T) {
 
 	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerInheritBinding{},
 			"b2": WorkerInheritBinding{
@@ -831,7 +832,7 @@ func TestUploadWorker_WithKVBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerKvNamespaceBinding{
 				NamespaceID: "test-namespace",
@@ -872,7 +873,7 @@ func TestUploadWorker_WithWasmBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerWebAssemblyBinding{
 				Module: strings.NewReader("fake-wasm"),
@@ -910,7 +911,7 @@ func TestUploadWorker_WithPlainTextBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerPlainTextBinding{
 				Text: "plain text value",
@@ -955,7 +956,7 @@ func TestUploadWorker_ModuleWithPlainTextBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerModuleScript,
+		Script:     strings.NewReader(workerModuleScript),
 		Module:     true,
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerPlainTextBinding{
@@ -994,7 +995,7 @@ func TestUploadWorker_WithSecretTextBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerSecretTextBinding{
 				Text: "secret text value",
@@ -1037,7 +1038,7 @@ func TestUploadWorker_WithServiceBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerServiceBinding{
 				Service: "the_service",
@@ -1070,7 +1071,7 @@ func TestUploadWorker_WithLogpush(t *testing.T) {
 		w.Header().Set("content-type", "application/json")
 		fmt.Fprint(w, workersScriptResponse(t, withWorkerScript(expectedWorkersModuleWorkerScript), withWorkerLogpush(logpush), withWorkerModifiedOn(formattedTime)))
 	})
-	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: workerScript, Logpush: logpush})
+	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: strings.NewReader(workerScript), Logpush: logpush})
 	want := WorkerScriptResponse{
 		Response: successResponse,
 		Module:   false,
@@ -1115,7 +1116,7 @@ func TestUploadWorker_WithCompatibilityFlags(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName:         "bar",
-		Script:             workerScript,
+		Script:             strings.NewReader(workerScript),
 		CompatibilityDate:  compatibilityDate,
 		CompatibilityFlags: compatibilityFlags,
 	})
@@ -1149,7 +1150,7 @@ func TestUploadWorker_WithQueueBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerQueueBinding{
 				Binding: "b1",
@@ -1196,7 +1197,7 @@ func TestUploadWorker_WithDispatchNamespaceBinding(t *testing.T) {
 	environmentName := "e1"
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": DispatchNamespaceBinding{
 				Binding:   "b1",
@@ -1240,7 +1241,7 @@ func TestUploadWorker_WithSmartPlacementEnabled(t *testing.T) {
 	t.Run("Test enabling Smart Placement", func(t *testing.T) {
 		worker, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 			ScriptName: "bar",
-			Script:     workerScript,
+			Script:     strings.NewReader(workerScript),
 			Placement: &Placement{
 				Mode: placementMode,
 			},
@@ -1255,7 +1256,7 @@ func TestUploadWorker_WithSmartPlacementEnabled(t *testing.T) {
 
 		worker, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 			ScriptName: "bar",
-			Script:     workerScript,
+			Script:     strings.NewReader(workerScript),
 			Placement: &Placement{
 				Mode: placementMode,
 			},
@@ -1296,7 +1297,7 @@ func TestUploadWorker_WithTailConsumers(t *testing.T) {
 
 		worker, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 			ScriptName:    "bar",
-			Script:        workerScript,
+			Script:        strings.NewReader(workerScript),
 			TailConsumers: &tailConsumers,
 		})
 		assert.NoError(t, err)
@@ -1329,7 +1330,7 @@ func TestUploadWorker_ToDispatchNamespace(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName:            "bar",
-		Script:                workerScript,
+		Script:                strings.NewReader(workerScript),
 		DispatchNamespaceName: &namespaceName,
 		Bindings: map[string]WorkerBinding{
 			"b1": WorkerPlainTextBinding{
@@ -1367,7 +1368,7 @@ func TestUploadWorker_ToDispatchNamespace_Tags(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName:            "bar",
-		Script:                workerScript,
+		Script:                strings.NewReader(workerScript),
 		DispatchNamespaceName: &namespaceName,
 		Tags:                  tags,
 	})
@@ -1399,7 +1400,7 @@ func TestUploadWorker_UnsafeBinding(t *testing.T) {
 
 	_, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{
 		ScriptName: "bar",
-		Script:     workerScript,
+		Script:     strings.NewReader(workerScript),
 		Bindings: map[string]WorkerBinding{
 			"b1": UnsafeBinding{
 				"type": "dynamic_dispatch",

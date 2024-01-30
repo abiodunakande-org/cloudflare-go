@@ -23,7 +23,7 @@ type WorkerRequestParams struct {
 
 type CreateWorkerParams struct {
 	ScriptName string
-	Script     string
+	Script     io.Reader
 
 	// DispatchNamespaceName uploads the worker to a WFP dispatch namespace if provided
 	DispatchNamespaceName *string
@@ -89,7 +89,7 @@ func (p CreateWorkerParams) RequiresMultipart() bool {
 
 type UpdateWorkersScriptContentParams struct {
 	ScriptName string
-	Script     string
+	Script     io.Reader
 
 	// DispatchNamespaceName uploads the worker to a WFP dispatch namespace if provided
 	DispatchNamespaceName *string
@@ -340,17 +340,19 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 		return WorkerScriptResponse{}, ErrMissingAccountID
 	}
 
-	body := []byte(params.Script)
+	body := params.Script
 	var (
 		contentType = "application/javascript"
 		err         error
 	)
 
 	if params.RequiresMultipart() {
-		contentType, body, err = formatMultipartBody(params)
+		var b []byte
+		contentType, b, err = formatMultipartBody(params)
 		if err != nil {
 			return WorkerScriptResponse{}, err
 		}
+		body = bytes.NewReader(b)
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s", rc.Identifier, params.ScriptName)
@@ -408,7 +410,7 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		return WorkerScriptResponse{}, ErrMissingAccountID
 	}
 
-	body := []byte(params.Script)
+	body := params.Script
 	var (
 		contentType = "application/javascript"
 		err         error
@@ -420,10 +422,12 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		formattedParams.ScriptName = params.ScriptName
 		formattedParams.Module = params.Module
 		formattedParams.DispatchNamespaceName = params.DispatchNamespaceName
-		contentType, body, err = formatMultipartBody(formattedParams)
+		var b []byte
+		contentType, b, err = formatMultipartBody(formattedParams)
 		if err != nil {
 			return WorkerScriptResponse{}, err
 		}
+		body = bytes.NewReader(b)
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s/content", rc.Identifier, params.ScriptName)
@@ -592,7 +596,11 @@ func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	_, err = pw.Write([]byte(params.Script))
+	scr, err := io.ReadAll(params.Script)
+	if err != nil {
+		return "", nil, err
+	}
+	_, err = pw.Write(scr)
 	if err != nil {
 		return "", nil, err
 	}
