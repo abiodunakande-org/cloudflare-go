@@ -1408,3 +1408,45 @@ func TestUploadWorker_UnsafeBinding(t *testing.T) {
 	})
 	assert.NoError(t, err)
 }
+
+func TestUploadWorker_ReaderModule(t *testing.T) {
+	setup()
+	defer teardown()
+	formattedCreatedTime, _ := time.Parse(time.RFC3339Nano, "2018-06-09T15:17:01.989141Z")
+	mux.HandleFunc("/accounts/"+testAccountID+"/workers/scripts/foo", func(w http.ResponseWriter, r *http.Request) {
+		mpUpload, err := parseMultipartUpload(r)
+		assert.NoError(t, err)
+
+		assert.Equal(t, workerModuleScript, mpUpload.Script)
+
+		workerFileDetails, err := getFileDetails(r, "worker.mjs")
+		if !assert.NoError(t, err) {
+			assert.FailNow(t, "worker file not found in multipart form body")
+		}
+		contentTypeHeader := workerFileDetails.Header.Get("content-type")
+		expectedContentType := "application/javascript+module"
+		assert.Equal(t, expectedContentType, contentTypeHeader, "Expected content-type request header to be %s, got %s", expectedContentType, contentTypeHeader)
+
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprint(w, workersScriptResponse(t, withWorkerScript(expectedWorkersModuleWorkerScript), withWorkerCreatedOn(formattedCreatedTime)))
+	})
+	res, err := client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: strings.NewReader(workerModuleScript), Module: true})
+	want := WorkerScriptResponse{
+		Response: successResponse,
+		Module:   false,
+		WorkerScript: WorkerScript{
+			Script:     workerModuleScript,
+			UsageModel: "unbound",
+			WorkerMetaData: WorkerMetaData{
+				ID:               "e7a57d8746e74ae49c25994dadb421b1",
+				ETAG:             "279cf40d86d70b82f6cd3ba90a646b3ad995912da446836d7371c21c6a43977a",
+				Size:             191,
+				CreatedOn:        formattedCreatedTime,
+				Logpush:          BoolPtr(false),
+				LastDeployedFrom: StringPtr("dash"),
+			},
+		}}
+	if assert.NoError(t, err) {
+		assert.Equal(t, want, res)
+	}
+}
