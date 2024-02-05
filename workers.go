@@ -346,7 +346,7 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 		err         error
 		body        interface{}
 	)
-	mpChan := make(chan error)
+	eChan := make(chan error)
 	if params.RequiresMultipart() {
 		r, w := io.Pipe()
 		mpw := multipart.NewWriter(w)
@@ -354,17 +354,11 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 		body = r
 		go func() {
 			defer w.Close()
-			_, _, err = formatMultipartBody(params, mpw)
-			if err != nil {
-				mpChan <- err
-			}
-			mpChan <- nil
+			eChan <- formatMultipartBody(params, mpw)
 		}()
 	} else {
 		body = params.Script
-		go func() {
-			mpChan <- nil
-		}()
+		close(eChan)
 	}
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s", rc.Identifier, params.ScriptName)
 	if params.DispatchNamespaceName != nil {
@@ -388,12 +382,10 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 		}
 		doneCh <- nil
 	}()
-	err = <-mpChan
-	if err != nil {
+	if err = <-eChan; err != nil {
 		return WorkerScriptResponse{}, err
 	}
-	err = <-doneCh
-	if err != nil {
+	if err = <-doneCh; err != nil {
 		return WorkerScriptResponse{}, err
 	}
 	return *r, nil
@@ -437,7 +429,7 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		err         error
 		body        interface{}
 	)
-	mpChan := make(chan error)
+	eChan := make(chan error)
 	if params.Module {
 		var formattedParams CreateWorkerParams
 		formattedParams.Script = params.Script
@@ -450,17 +442,11 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		body = r
 		go func() {
 			defer w.Close()
-			_, _, err = formatMultipartBody(formattedParams, mpw)
-			if err != nil {
-				mpChan <- err
-			}
-			mpChan <- nil
+			eChan <- formatMultipartBody(formattedParams, mpw)
 		}()
 	} else {
 		body = params.Script
-		go func() {
-			mpChan <- nil
-		}()
+		close(eChan)
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s/content", rc.Identifier, params.ScriptName)
@@ -485,15 +471,12 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		}
 		doneCh <- nil
 	}()
-	err = <-mpChan
-	if err != nil {
+	if err = <-eChan; err != nil {
 		return WorkerScriptResponse{}, err
 	}
-	err = <-doneCh
-	if err != nil {
+	if err = <-doneCh; err != nil {
 		return WorkerScriptResponse{}, err
 	}
-
 	return *r, nil
 }
 
@@ -563,7 +546,7 @@ func (api *API) UpdateWorkersScriptSettings(ctx context.Context, rc *ResourceCon
 }
 
 // Returns content-type, body, error.
-func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (string, textproto.MIMEHeader, error) {
+func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) error {
 	defer mpw.Close()
 	// Write metadata part
 	var scriptPartName string
@@ -599,7 +582,7 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (stri
 	for name, b := range params.Bindings {
 		bindingMeta, bodyWriter, err := b.serialize(name)
 		if err != nil {
-			return "", nil, err
+			return err
 		}
 
 		meta.Bindings = append(meta.Bindings, bindingMeta)
@@ -610,15 +593,15 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (stri
 	hdr.Set("content-type", "application/json")
 	pw, err := mpw.CreatePart(hdr)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	_, err = pw.Write(metaJSON)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 
 	// Write script part
@@ -635,7 +618,7 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (stri
 
 	pw, err = mpw.CreatePart(hdr)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	if val, ok := params.Script.(io.Reader); ok {
 		_, err = io.Copy(pw, val)
@@ -644,11 +627,11 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (stri
 		case string:
 			pw.Write([]byte(val))
 		default:
-			return "", nil, errors.New("Failed to read script")
+			return errors.New("Failed to read script")
 		}
 	}
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 
 	// Write other bindings with parts
@@ -656,10 +639,10 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (stri
 		if w != nil {
 			err = w(mpw)
 			if err != nil {
-				return "", nil, err
+				return err
 			}
 		}
 	}
 
-	return mpw.FormDataContentType(), hdr, nil
+	return nil
 }
