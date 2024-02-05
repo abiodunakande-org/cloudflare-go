@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -23,7 +24,7 @@ type WorkerRequestParams struct {
 
 type CreateWorkerParams struct {
 	ScriptName string
-	Script     string
+	Script     interface{}
 
 	// DispatchNamespaceName uploads the worker to a WFP dispatch namespace if provided
 	DispatchNamespaceName *string
@@ -89,7 +90,7 @@ func (p CreateWorkerParams) RequiresMultipart() bool {
 
 type UpdateWorkersScriptContentParams struct {
 	ScriptName string
-	Script     string
+	Script     interface{}
 
 	// DispatchNamespaceName uploads the worker to a WFP dispatch namespace if provided
 	DispatchNamespaceName *string
@@ -340,17 +341,48 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 		return WorkerScriptResponse{}, ErrMissingAccountID
 	}
 
-	body := []byte(params.Script)
 	var (
 		contentType = "application/javascript"
 		err         error
+		body        io.Reader
 	)
-
+	mpChan := make(chan error)
 	if params.RequiresMultipart() {
-		contentType, body, err = formatMultipartBody(params)
+		r, w := io.Pipe()
+		mpw := multipart.NewWriter(w)
+		var bhdr textproto.MIMEHeader
+		contentType, bhdr, err = formatMultipartBody(params, mpw)
 		if err != nil {
 			return WorkerScriptResponse{}, err
 		}
+		body = r
+		go func() {
+			defer w.Close()
+			defer mpw.Close()
+			p, err := mpw.CreatePart(bhdr)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+			br, err := getReader(params.Script)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+			_, err = io.Copy(p, br)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+		}()
+		body = r
+		mpChan <- nil
+	} else {
+		body, err = getReader(params.Script)
+		if err != nil {
+			return WorkerScriptResponse{}, err
+		}
+		mpChan <- nil
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s", rc.Identifier, params.ScriptName)
@@ -360,19 +392,30 @@ func (api *API) UploadWorker(ctx context.Context, rc *ResourceContainer, params 
 
 	headers := make(http.Header)
 	headers.Set("Content-Type", contentType)
-	res, err := api.makeRequestContextWithHeaders(ctx, http.MethodPut, uri, body, headers)
-
-	var r WorkerScriptResponse
+	var r *WorkerScriptResponse
+	doneCh := make(chan error)
+	go func() {
+		res, err := api.makeRequestContextWithHeaders(ctx, http.MethodPut, uri, body, headers)
+		if err != nil {
+			doneCh <- err
+			return
+		}
+		err = json.Unmarshal(res, &r)
+		if err != nil {
+			doneCh <- fmt.Errorf("%s: %w", errUnmarshalError, err)
+			return
+		}
+		doneCh <- nil
+	}()
+	err = <-mpChan
 	if err != nil {
-		return r, err
+		return WorkerScriptResponse{}, err
 	}
-
-	err = json.Unmarshal(res, &r)
+	err = <-doneCh
 	if err != nil {
-		return r, fmt.Errorf("%s: %w", errUnmarshalError, err)
+		return WorkerScriptResponse{}, err
 	}
-
-	return r, nil
+	return *r, nil
 }
 
 // GetWorkersScriptContent returns the pure script content of a worker.
@@ -408,22 +451,56 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 		return WorkerScriptResponse{}, ErrMissingAccountID
 	}
 
-	body := []byte(params.Script)
 	var (
 		contentType = "application/javascript"
 		err         error
+		body        io.Reader
 	)
-
+	mpChan := make(chan error)
 	if params.Module {
 		var formattedParams CreateWorkerParams
 		formattedParams.Script = params.Script
 		formattedParams.ScriptName = params.ScriptName
 		formattedParams.Module = params.Module
 		formattedParams.DispatchNamespaceName = params.DispatchNamespaceName
-		contentType, body, err = formatMultipartBody(formattedParams)
+		r, w := io.Pipe()
+		mpw := multipart.NewWriter(w)
+		var bhdr textproto.MIMEHeader
+		contentType, bhdr, err = formatMultipartBody(formattedParams, mpw)
 		if err != nil {
 			return WorkerScriptResponse{}, err
 		}
+		body = r
+		go func() {
+			defer w.Close()
+			defer mpw.Close()
+			p, err := mpw.CreatePart(bhdr)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+			br, err := getReader(formattedParams.Script)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+			_, err = io.Copy(p, br)
+			if err != nil {
+				mpChan <- err
+				return
+			}
+		}()
+		body = r
+		mpChan <- nil
+		if err != nil {
+			return WorkerScriptResponse{}, err
+		}
+	} else {
+		body, err = getReader(params.Script)
+		if err != nil {
+			return WorkerScriptResponse{}, err
+		}
+		mpChan <- nil
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s/content", rc.Identifier, params.ScriptName)
@@ -433,19 +510,31 @@ func (api *API) UpdateWorkersScriptContent(ctx context.Context, rc *ResourceCont
 
 	headers := make(http.Header)
 	headers.Set("Content-Type", contentType)
-	res, err := api.makeRequestContextWithHeaders(ctx, http.MethodPut, uri, body, headers)
-
-	var r WorkerScriptResponse
+	var r *WorkerScriptResponse
+	doneCh := make(chan error)
+	go func() {
+		res, err := api.makeRequestContextWithHeaders(ctx, http.MethodPut, uri, body, headers)
+		if err != nil {
+			doneCh <- err
+			return
+		}
+		err = json.Unmarshal(res, &r)
+		if err != nil {
+			doneCh <- fmt.Errorf("%s: %w", errUnmarshalError, err)
+			return
+		}
+		doneCh <- nil
+	}()
+	err = <-mpChan
 	if err != nil {
-		return r, err
+		return WorkerScriptResponse{}, err
+	}
+	err = <-doneCh
+	if err != nil {
+		return WorkerScriptResponse{}, err
 	}
 
-	err = json.Unmarshal(res, &r)
-	if err != nil {
-		return r, fmt.Errorf("%s: %w", errUnmarshalError, err)
-	}
-
-	return r, nil
+	return *r, nil
 }
 
 // GetWorkersScriptSettings returns the metadata of a worker.
@@ -514,11 +603,8 @@ func (api *API) UpdateWorkersScriptSettings(ctx context.Context, rc *ResourceCon
 }
 
 // Returns content-type, body, error.
-func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
-	var buf = &bytes.Buffer{}
-	var mpw = multipart.NewWriter(buf)
-	defer mpw.Close()
-
+func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) (string, textproto.MIMEHeader, error) {
+	println("formatting")
 	// Write metadata part
 	var scriptPartName string
 	meta := struct {
@@ -559,7 +645,6 @@ func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
 		meta.Bindings = append(meta.Bindings, bindingMeta)
 		bodyWriters = append(bodyWriters, bodyWriter)
 	}
-
 	var hdr = textproto.MIMEHeader{}
 	hdr.Set("content-disposition", fmt.Sprintf(`form-data; name="%s"`, "metadata"))
 	hdr.Set("content-type", "application/json")
@@ -575,6 +660,7 @@ func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	print("scriptpart")
 
 	// Write script part
 	hdr = textproto.MIMEHeader{}
@@ -588,14 +674,14 @@ func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
 	}
 	hdr.Set("content-type", contentType)
 
-	pw, err = mpw.CreatePart(hdr)
-	if err != nil {
-		return "", nil, err
-	}
-	_, err = pw.Write([]byte(params.Script))
-	if err != nil {
-		return "", nil, err
-	}
+	// pw, err = mpw.CreatePart(hdr)
+	// if err != nil {
+	// 	return "", nil, err
+	// }
+	// _, err = pw.Write([]byte(params.Script))
+	// if err != nil {
+	// 	return "", nil, err
+	// }
 
 	// Write other bindings with parts
 	for _, w := range bodyWriters {
@@ -607,7 +693,17 @@ func formatMultipartBody(params CreateWorkerParams) (string, []byte, error) {
 		}
 	}
 
-	mpw.Close()
+	return mpw.FormDataContentType(), hdr, nil
+}
 
-	return mpw.FormDataContentType(), buf.Bytes(), nil
+func getReader(s interface{}) (io.Reader, error) {
+	if val, ok := s.(io.Reader); !ok {
+		return val, nil
+	}
+	switch val := s.(type) {
+	case string:
+		return strings.NewReader(val), nil
+	default:
+		return nil, errors.New("Unable to get reader from script")
+	}
 }
