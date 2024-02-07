@@ -625,9 +625,9 @@ func formatMultipartBody(params CreateWorkerParams, mpw *multipart.Writer) error
 	} else {
 		switch val := params.Script.(type) {
 		case string:
-			pw.Write([]byte(val))
+			_, err = pw.Write([]byte(val))
 		default:
-			return errors.New("Failed to read script")
+			err = errors.New("Script type unimplemented")
 		}
 	}
 	if err != nil {

@@ -1450,3 +1450,35 @@ func TestUploadWorker_ReaderModule(t *testing.T) {
 		assert.Equal(t, want, res)
 	}
 }
+
+func TestUploadWorker_UnimplementedInterface(t *testing.T) {
+	setup()
+	defer teardown()
+	formattedCreatedTime, _ := time.Parse(time.RFC3339Nano, "2018-06-09T15:17:01.989141Z")
+	eChan := make(chan interface{})
+	mux.HandleFunc("/accounts/"+testAccountID+"/workers/scripts/foo", func(w http.ResponseWriter, r *http.Request) {
+		<-eChan
+		print("reading")
+		var err error
+		for {
+			_, err := r.Body.Read(nil)
+			if err != nil {
+				break
+			}
+		}
+		assert.NotNil(t, err)
+		workerFileDetails, err := getFileDetails(r, "worker.mjs")
+		if !assert.NoError(t, err) {
+			assert.FailNow(t, "worker file not found in multipart form body")
+		}
+		contentTypeHeader := workerFileDetails.Header.Get("content-type")
+		expectedContentType := "application/javascript+module"
+		assert.Equal(t, expectedContentType, contentTypeHeader, "Expected content-type request header to be %s, got %s", expectedContentType, contentTypeHeader)
+
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprint(w, workersScriptResponse(t, withWorkerScript(expectedWorkersModuleWorkerScript), withWorkerCreatedOn(formattedCreatedTime)))
+	})
+	var s interface{}
+	_, _ = client.UploadWorker(context.Background(), AccountIdentifier(testAccountID), CreateWorkerParams{ScriptName: "foo", Script: s, Module: true})
+	eChan <- nil
+}
